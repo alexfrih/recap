@@ -5,6 +5,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
+import { PROMPTS } from './prompts';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -12,8 +13,6 @@ const openai = new OpenAI({
 });
 
 type Language = 'en' | 'fr';
-
-
 
 // Validate YouTube URL
 function isValidYouTubeUrl(url: string): boolean {
@@ -430,7 +429,7 @@ async function translateTextInChunks(text: string, targetLanguage: 'en' | 'fr', 
 				messages: [
 					{
 						role: 'system',
-						content: `You are a professional translator. Translate the following text to ${languageName}. Maintain the original meaning and tone. Only return the translated text, no additional comments.`
+						content: PROMPTS.translation.system(languageName)
 					},
 					{
 						role: 'user',
@@ -476,7 +475,7 @@ async function translateText(text: string, targetLanguage: 'en' | 'fr', writer: 
 			messages: [
 				{
 					role: 'system',
-					content: `You are a professional translator. Translate the following text to ${languageName}. Maintain the original meaning and tone. Only return the translated text, no additional comments.`
+					content: PROMPTS.translation.system(languageName)
 				},
 				{
 					role: 'user',
@@ -532,30 +531,22 @@ async function summarizeTextInChunks(text: string, writer: StreamWriter, languag
 
 	const summaries: string[] = [];
 
-	const systemPrompt = language === 'en'
-		? 'You are a helpful assistant that creates very brief, essential summaries. Extract only the most important key points. Be extremely concise - maximum 2-3 sentences per segment.'
-		: 'Vous êtes un assistant utile qui crée des résumés très brefs et essentiels. Extrayez seulement les points clés les plus importants. Soyez extrêmement concis - maximum 2-3 phrases par segment.';
-
 	for (let i = 0; i < chunks.length; i++) {
 		writer.write({
 			status: { step: 5, message: `Summarizing segment ${i + 1}/${chunks.length}...` }
 		});
 
 		try {
-			const userPrompt = language === 'en'
-				? `Summarize this text segment:\n\n${chunks[i]}`
-				: `Résumez ce segment de texte:\n\n${chunks[i]}`;
-
 			const response = await openai.chat.completions.create({
 				model: 'gpt-3.5-turbo',
 				messages: [
 					{
 						role: 'system',
-						content: systemPrompt
+						content: PROMPTS.chunkSummary.system[language]
 					},
 					{
 						role: 'user',
-						content: userPrompt
+						content: PROMPTS.chunkSummary.user[language](chunks[i])
 					}
 				],
 				max_tokens: 150,
@@ -579,24 +570,16 @@ async function summarizeTextInChunks(text: string, writer: StreamWriter, languag
 	const consolidatedText = summaries.join('\n\n');
 
 	try {
-		const finalSystemPrompt = language === 'en'
-			? 'You are a helpful assistant that creates very concise final summaries. Synthesize the key points into a brief, well-organized summary. Maximum 200 words. Use bullet points for clarity.'
-			: 'Vous êtes un assistant utile qui crée des résumés finaux très concis. Synthétisez les points clés en un résumé bref et bien organisé. Maximum 200 mots. Utilisez des puces pour la clarté.';
-
-		const finalUserPrompt = language === 'en'
-			? `Create a final consolidated summary from these segment summaries:\n\n${consolidatedText}`
-			: `Créez un résumé final consolidé à partir de ces résumés de segments:\n\n${consolidatedText}`;
-
 		const response = await openai.chat.completions.create({
 			model: 'gpt-3.5-turbo',
 			messages: [
 				{
 					role: 'system',
-					content: finalSystemPrompt
+					content: PROMPTS.finalSummary.system[language]
 				},
 				{
 					role: 'user',
-					content: finalUserPrompt
+					content: PROMPTS.finalSummary.user[language](consolidatedText)
 				}
 			],
 			max_tokens: 300,
@@ -629,24 +612,16 @@ async function summarizeText(text: string, writer: StreamWriter, language: Langu
 	});
 
 	try {
-		const systemPrompt = language === 'en'
-			? 'You are a helpful assistant that creates very concise summaries of video transcripts. Extract only the most essential points. Maximum 200 words. Use bullet points for key insights.'
-			: 'Vous êtes un assistant utile qui crée des résumés très concis de transcriptions vidéo. Extrayez seulement les points les plus essentiels. Maximum 200 mots. Utilisez des puces pour les idées clés.';
-
-		const userPrompt = language === 'en'
-			? `Please summarize this video transcript in a clear, structured way:\n\n${text}`
-			: `Veuillez résumer cette transcription vidéo de manière claire et structurée:\n\n${text}`;
-
 		const response = await openai.chat.completions.create({
 			model: 'gpt-3.5-turbo',
 			messages: [
 				{
 					role: 'system',
-					content: systemPrompt
+					content: PROMPTS.summary.system[language]
 				},
 				{
 					role: 'user',
-					content: userPrompt
+					content: PROMPTS.summary.user[language](text)
 				}
 			],
 			max_tokens: 300,
