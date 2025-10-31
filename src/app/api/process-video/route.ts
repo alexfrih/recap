@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import ytdl from "@distube/ytdl-core";
+import youtubedl from "youtube-dl-exec";
 import OpenAI from "openai";
 import ffmpeg from "fluent-ffmpeg";
 import { promises as fs } from "fs";
@@ -16,11 +16,9 @@ type Language = "en" | "fr";
 
 // Validate YouTube URL
 function isValidYouTubeUrl(url: string): boolean {
-  try {
-    return ytdl.validateURL(url);
-  } catch {
-    return false;
-  }
+  const youtubeRegex =
+    /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+/;
+  return youtubeRegex.test(url);
 }
 
 interface StreamWriter {
@@ -42,70 +40,55 @@ async function extractAudio(
     status: { step: 1, message: "Connecting to YouTube..." },
   });
 
+  const tempDir = os.tmpdir();
+  const outputPath = path.join(tempDir, `youtube_${Date.now()}.mp3`);
+
   try {
     writer.write({
-      status: { step: 1, message: "Fetching video information..." },
-    });
-
-    const info = await ytdl.getInfo(url);
-    const title = info.videoDetails.title;
-    const duration = info.videoDetails.lengthSeconds;
-    const durationMin = Math.floor(parseInt(duration) / 60);
-
-    writer.write({
-      status: { step: 1, message: `Found: "${title}" (${durationMin} min)` },
-    });
-
-    writer.write({
-      status: { step: 1, message: "Starting audio download..." },
-    });
-
-    // Get audio stream with additional options to bypass restrictions
-    const audioStream = ytdl(url, {
-      quality: "highestaudio",
-      filter: "audioonly",
-      // Add headers to appear more like a browser
-      requestOptions: {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept-Language": "en-US,en;q=0.9",
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
+      status: {
+        step: 1,
+        message: "Downloading audio with yt-dlp (most reliable)...",
       },
     });
 
-    let downloadedBytes = 0;
-    const chunks: Buffer[] = [];
-
-    audioStream.on("data", (chunk) => {
-      downloadedBytes += chunk.length;
-      const downloadedMB = (downloadedBytes / (1024 * 1024)).toFixed(1);
-      writer.write({
-        status: { step: 1, message: `Downloading audio... ${downloadedMB}MB` },
-      });
-      chunks.push(Buffer.from(chunk));
+    // Use yt-dlp to download audio - it's more reliable than ytdl-core
+    await youtubedl(url, {
+      extractAudio: true,
+      audioFormat: "mp3",
+      audioQuality: 0, // best quality
+      output: outputPath,
+      noCheckCertificates: true,
+      noWarnings: true,
+      preferFreeFormats: true,
+      addHeader: [
+        "referer:youtube.com",
+        "user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      ],
     });
 
-    // Convert stream to buffer with progress
-    const audioBuffer = await new Promise<Buffer>((resolve, reject) => {
-      audioStream.on("end", () => {
-        const finalBuffer = Buffer.concat(chunks);
-        const finalSizeMB = (finalBuffer.length / (1024 * 1024)).toFixed(1);
-        writer.write({
-          status: {
-            step: 1,
-            message: `Audio download completed (${finalSizeMB}MB)`,
-          },
-        });
-        resolve(finalBuffer);
-      });
-      audioStream.on("error", (err) => reject(err));
+    writer.write({
+      status: { step: 1, message: "Reading downloaded audio file..." },
     });
+
+    // Read the downloaded file
+    const audioBuffer = await fs.readFile(outputPath);
+    const fileSizeMB = (audioBuffer.length / (1024 * 1024)).toFixed(1);
+
+    writer.write({
+      status: {
+        step: 1,
+        message: `Audio download completed (${fileSizeMB}MB)`,
+      },
+    });
+
+    // Clean up temp file
+    await fs.unlink(outputPath).catch(() => {});
 
     return audioBuffer;
   } catch (error) {
+    // Clean up temp file on error
+    await fs.unlink(outputPath).catch(() => {});
+
     console.error("=== YOUTUBE DOWNLOAD ERROR ===");
     console.error(
       "Error type:",
@@ -125,14 +108,9 @@ async function extractAudio(
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
 
-    // Provide helpful error message for common YouTube issues
-    if (errorMessage.includes("403")) {
-      throw new Error(
-        `YouTube blocked the request (403). This video may be restricted or age-gated. Try: 1) A different video, 2) Upload the MP4 file directly instead.`,
-      );
-    }
-
-    throw new Error(`Failed to download audio: ${errorMessage}`);
+    throw new Error(
+      `Failed to download YouTube audio. The video may be unavailable, region-locked, or private. Error: ${errorMessage}`,
+    );
   }
 }
 
