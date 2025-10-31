@@ -41,7 +41,7 @@ async function extractAudio(
   });
 
   const tempDir = os.tmpdir();
-  const outputPath = path.join(tempDir, `youtube_${Date.now()}.mp3`);
+  const outputTemplate = path.join(tempDir, `youtube_${Date.now()}`);
 
   try {
     writer.write({
@@ -56,19 +56,21 @@ async function extractAudio(
       extractAudio: true,
       audioFormat: "mp3",
       audioQuality: 0, // best quality
-      output: outputPath,
+      output: `${outputTemplate}.%(ext)s`,
       noCheckCertificates: true,
       noWarnings: true,
       preferFreeFormats: true,
-      addHeader: [
-        "referer:youtube.com",
-        "user-agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-      ],
+      referer: "youtube.com",
+      userAgent:
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     });
 
     writer.write({
       status: { step: 1, message: "Reading downloaded audio file..." },
     });
+
+    // The actual output file will have .mp3 extension
+    const outputPath = `${outputTemplate}.mp3`;
 
     // Read the downloaded file
     const audioBuffer = await fs.readFile(outputPath);
@@ -86,8 +88,9 @@ async function extractAudio(
 
     return audioBuffer;
   } catch (error) {
-    // Clean up temp file on error
-    await fs.unlink(outputPath).catch(() => {});
+    // Clean up temp file on error (try both possible extensions)
+    await fs.unlink(`${outputTemplate}.mp3`).catch(() => {});
+    await fs.unlink(`${outputTemplate}.m4a`).catch(() => {});
 
     console.error("=== YOUTUBE DOWNLOAD ERROR ===");
     console.error(
@@ -102,14 +105,29 @@ async function extractAudio(
       "Error stack:",
       error instanceof Error ? error.stack : "No stack trace",
     );
+    console.error("Error object:", error);
     console.error("Video URL:", url);
     console.error("============================");
 
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error";
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorString = JSON.stringify(
+      error,
+      Object.getOwnPropertyNames(error),
+    );
+
+    // Check if it's a yt-dlp installation issue
+    if (
+      errorString.includes("ENOENT") ||
+      errorString.includes("not found") ||
+      !errorMessage
+    ) {
+      throw new Error(
+        `yt-dlp binary is not installed. Please wait for automatic installation or install manually: npm install youtube-dl-exec`,
+      );
+    }
 
     throw new Error(
-      `Failed to download YouTube audio. The video may be unavailable, region-locked, or private. Error: ${errorMessage}`,
+      `Failed to download YouTube audio. Error: ${errorMessage || errorString}`,
     );
   }
 }
