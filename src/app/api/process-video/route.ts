@@ -96,6 +96,22 @@ async function extractAudio(
 
     return audioBuffer;
   } catch (error) {
+    console.error("=== YOUTUBE DOWNLOAD ERROR ===");
+    console.error(
+      "Error type:",
+      error instanceof Error ? error.constructor.name : typeof error,
+    );
+    console.error(
+      "Error message:",
+      error instanceof Error ? error.message : String(error),
+    );
+    console.error(
+      "Error stack:",
+      error instanceof Error ? error.stack : "No stack trace",
+    );
+    console.error("Video URL:", url);
+    console.error("============================");
+
     throw new Error(
       `Failed to download audio: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
@@ -445,8 +461,8 @@ async function transcribeAudio(
     });
 
     // Create a File-like object from the buffer
-    const audioFile = new File([processedBuffer], "audio.ogg", {
-      type: "audio/ogg",
+    const audioFile = new File([processedBuffer], "audio.mp3", {
+      type: "audio/mp3",
     });
 
     writer.write({
@@ -475,6 +491,27 @@ async function transcribeAudio(
 
     return transcription.text;
   } catch (error) {
+    console.error("=== TRANSCRIPTION ERROR ===");
+    console.error(
+      "Error type:",
+      error instanceof Error ? error.constructor.name : typeof error,
+    );
+    console.error(
+      "Error message:",
+      error instanceof Error ? error.message : String(error),
+    );
+    console.error(
+      "Error stack:",
+      error instanceof Error ? error.stack : "No stack trace",
+    );
+    console.error(
+      "Audio buffer size:",
+      audioBuffer.length,
+      "bytes",
+      `(${(audioBuffer.length / (1024 * 1024)).toFixed(2)}MB)`,
+    );
+    console.error("========================");
+
     // If all else fails, try streaming as last resort
     if (error instanceof Error && error.message.includes("413")) {
       writer.write({
@@ -1065,7 +1102,22 @@ export async function POST(request: NextRequest) {
 
           writer.close();
         } catch (error) {
-          console.error("Processing error:", error);
+          console.error("=== PROCESSING ERROR ===");
+          console.error(
+            "Error type:",
+            error instanceof Error ? error.constructor.name : typeof error,
+          );
+          console.error(
+            "Error message:",
+            error instanceof Error ? error.message : String(error),
+          );
+          console.error(
+            "Error stack:",
+            error instanceof Error ? error.stack : "No stack trace",
+          );
+          console.error("Full error object:", JSON.stringify(error, null, 2));
+          console.error("======================");
+
           writer.error(
             error instanceof Error
               ? error
