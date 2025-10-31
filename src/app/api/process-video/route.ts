@@ -60,10 +60,20 @@ async function extractAudio(
       status: { step: 1, message: "Starting audio download..." },
     });
 
-    // Get audio stream
+    // Get audio stream with additional options to bypass restrictions
     const audioStream = ytdl(url, {
       quality: "highestaudio",
       filter: "audioonly",
+      // Add headers to appear more like a browser
+      requestOptions: {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "Accept-Language": "en-US,en;q=0.9",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      },
     });
 
     let downloadedBytes = 0;
@@ -112,9 +122,17 @@ async function extractAudio(
     console.error("Video URL:", url);
     console.error("============================");
 
-    throw new Error(
-      `Failed to download audio: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error";
+
+    // Provide helpful error message for common YouTube issues
+    if (errorMessage.includes("403")) {
+      throw new Error(
+        `YouTube blocked the request (403). This video may be restricted or age-gated. Try: 1) A different video, 2) Upload the MP4 file directly instead.`,
+      );
+    }
+
+    throw new Error(`Failed to download audio: ${errorMessage}`);
   }
 }
 
